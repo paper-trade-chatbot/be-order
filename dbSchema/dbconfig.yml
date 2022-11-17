@@ -1,0 +1,5 @@
+development:
+    dialect: mysql
+    datasource: root:root@tcp(192.168.49.2:30306)/be-order?parseTime=true
+    dir: ./migrations
+    table: migrations_be_order
