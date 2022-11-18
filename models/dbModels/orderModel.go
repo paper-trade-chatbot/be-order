@@ -56,7 +56,7 @@ type OrderModel struct {
 	Amount          decimal.Decimal     `gorm:"column:amount"`
 	UnitPrice       decimal.NullDecimal `gorm:"column:unit_price"`
 	CreatedAt       time.Time           `gorm:"column:created_at"`
-	FinishedAt      time.Time           `gorm:"column:finished_at"`
+	FinishedAt      sql.NullTime        `gorm:"column:finished_at"`
 	RollbackerID    sql.NullInt64       `gorm:"column:rollbacker_id"`
 	RollbackedAt    sql.NullTime        `gorm:"column:rollbacked_at"`
 	Remark          sql.NullString      `gorm:"column:remark"`

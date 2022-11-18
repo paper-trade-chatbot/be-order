@@ -1,0 +1,43 @@
+# Executable
+melon-api
+localrc*
+
+# System specific files
+*.exe
+*.dll
+*.so
+*.dylib
+.DS_Store
+
+# vim swap files
+*.swp
+*.swo
+*.swn
+*.swm
+
+# go:generate-ed sources
+*_gen.go
+
+# local jwt keys
+jwt_dev.key
+jwt_dev.key.pub
+
+# govendor packages
+!vendor/vendor.json
+vendor/*
+/.idea
+/api-gateway
+/rf-api
+/rf-apigateway
+*.pb.go
+
+
+#dbSchema yml file
+dbSchema/dbconfig.yml
+
+#vscode
+.vscode/*
+
+playground
+be-order*
+

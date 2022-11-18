@@ -73,25 +73,25 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 }
 
 func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.FinishOpenPositionOrderReq) (*order.FinishOpenPositionOrderRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
 
 func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.StartClosePositionOrderReq) (*order.StartClosePositionOrderRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
 
 func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.FinishClosePositionOrderReq) (*order.FinishClosePositionOrderRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
 
 func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
 
 func (impl *OrderImpl) RollbackOrder(ctx context.Context, in *order.RollbackOrderReq) (*order.RollbackOrderRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
 
 func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*order.GetOrdersRes, error) {
-
+	return nil, common.ErrNotImplemented
 }
