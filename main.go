@@ -22,6 +22,7 @@ import (
 	"github.com/paper-trade-chatbot/be-order/config"
 	"github.com/paper-trade-chatbot/be-order/global"
 	"github.com/paper-trade-chatbot/be-order/logging"
+	"github.com/paper-trade-chatbot/be-order/pubsub"
 	"github.com/paper-trade-chatbot/be-order/server"
 )
 
@@ -57,6 +58,9 @@ func main() {
 
 	service.Initialize(ctx)
 	defer service.Finalize(ctx)
+
+	pubsub.Initialize(ctx)
+	defer pubsub.Finalize(ctx)
 
 	initConfig()
 

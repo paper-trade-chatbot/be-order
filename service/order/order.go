@@ -2,14 +2,18 @@ package order
 
 import (
 	"context"
+	"database/sql"
 
 	common "github.com/paper-trade-chatbot/be-common"
 	"github.com/paper-trade-chatbot/be-order/dao/orderDao"
 	"github.com/paper-trade-chatbot/be-order/database"
+	"github.com/paper-trade-chatbot/be-order/logging"
 	"github.com/paper-trade-chatbot/be-order/models/dbModels"
+	"github.com/paper-trade-chatbot/be-order/pubsub"
 	"github.com/paper-trade-chatbot/be-order/service"
 	"github.com/paper-trade-chatbot/be-proto/order"
 	"github.com/paper-trade-chatbot/be-proto/product"
+	"github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
 	"github.com/shopspring/decimal"
 )
 
@@ -64,6 +68,31 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 		Amount:          amount,
 	}
 	if _, err := orderDao.New(db, model); err != nil {
+		return nil, err
+	}
+
+	message := &rabbitmq.OpenPositionModel{
+		ID:           model.ID,
+		MemberID:     in.MemberID,
+		ExchangeCode: in.ExchangeCode,
+		ProductCode:  in.ProductCode,
+		TradeType:    rabbitmq.TradeType(in.TradeType),
+		Amount:       amount,
+	}
+
+	if _, err = pubsub.GetPublisher[*rabbitmq.OpenPositionModel](ctx).Produce(ctx, message); err != nil {
+		logging.Error(ctx, "[StartOpenPositionOrder] error: %v", err)
+		status := dbModels.OrderStatus_Failed
+		update := &orderDao.UpdateModel{
+			OrderStatus: &status,
+			Remark: &sql.NullString{
+				Valid:  true,
+				String: "unable to publish in rabbitmq",
+			},
+		}
+		if err := orderDao.Modify(db, model, update); err != nil {
+			return nil, err
+		}
 		return nil, err
 	}
 

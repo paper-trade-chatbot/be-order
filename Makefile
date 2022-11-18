@@ -17,7 +17,7 @@ ifeq (${OS}, linux)
 	SED_INPLACE = sed -i
 endif
 
-.PHONY: all codegen devenv docker deploy clean mock
+.PHONY: all codegen devenv docker deploy clean mock pubsub
 
 all: ${SERVICE_NAME}_${OS}
 
@@ -39,3 +39,6 @@ proto:
 
 common:
 	go get -u github.com/paper-trade-chatbot/be-common
+
+pubsub:
+	go get -u github.com/paper-trade-chatbot/be-pubsub

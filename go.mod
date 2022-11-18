@@ -19,6 +19,7 @@ require (
 	github.com/jinzhu/gorm v1.9.16
 	github.com/paper-trade-chatbot/be-common v0.0.0-20221117030101-61df3f5c1996
 	github.com/paper-trade-chatbot/be-proto v0.0.0-20221117074505-6a905a20b634
+	github.com/paper-trade-chatbot/be-pubsub v0.0.0-20221118100309-19905dee8adf
 	github.com/shopspring/decimal v1.3.1
 	github.com/tinylib/msgp v1.1.6
 	golang.org/x/net v0.2.0
@@ -32,6 +33,7 @@ require (
 	cloud.google.com/go/compute v1.12.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.1 // indirect
 	cloud.google.com/go/longrunning v0.1.1 // indirect
+	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
@@ -57,6 +59,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.0.1 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
+	github.com/streadway/amqp v1.0.0 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect

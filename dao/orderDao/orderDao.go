@@ -212,9 +212,21 @@ func Modify(tx *gorm.DB, model *dbModels.OrderModel, update *UpdateModel) error 
 		return err
 	}
 
+	if update.RollbackerID != nil &&
+		update.RollbackedAt != nil {
+		err := tx.Table(table).
+			Model(dbModels.OrderModel{}).
+			Where(table+".id = ? AND "+table+".rollbacker_id = ? AND "+table+".rollbacked_at = ?",
+				model.ID,
+				model.RollbackerID,
+				model.RollbackedAt).
+			Updates(attrs).Error
+		return err
+	}
+
 	err := tx.Table(table).
 		Model(dbModels.OrderModel{}).
-		Where(table+".id = ? AND "+table+".rollbacker_id = ? AND "+table+".rollbacked_at = ?",
+		Where(table+".id = ?",
 			model.ID,
 			model.RollbackerID,
 			model.RollbackedAt).

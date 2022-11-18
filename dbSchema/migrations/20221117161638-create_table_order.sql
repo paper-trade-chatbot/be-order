@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `be-order`.`order`
     `trade_type` TINYINT(4) NOT NULL COMMENT '買賣類別 1:買 2:賣',
     `amount` DECIMAL(19,4) NOT NULL COMMENT '交易數量',
     `unit_price` DECIMAL(19,4) NULL DEFAULT NULL COMMENT '成交單價',
+    `transaction_record_id` BIGINT UNSIGNED NULL DEFAULT NULL COMMENT '轉帳紀錄',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '創建時間',
     `finished_at` TIMESTAMP NULL DEFAULT NULL COMMENT '成交時間',
     `rollbacker_id` BIGINT UNSIGNED NULL DEFAULT NULL COMMENT '回滾者id',
