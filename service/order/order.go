@@ -39,6 +39,7 @@ func New() OrderIntf {
 }
 
 func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.StartOpenPositionOrderReq) (*order.StartOpenPositionOrderRes, error) {
+	logging.Info(ctx, "[StartOpenPositionOrder] in: %#v", in)
 	db := database.GetDB()
 
 	productRes, err := service.Impl.ProductIntf.GetProduct(ctx, &product.GetProductReq{
@@ -53,10 +54,12 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 		return nil, err
 	}
 	if productRes.Product == nil {
+		logging.Error(ctx, "[StartOpenPositionOrder] GetProduct failed: %v", common.ErrNoSuchProduct)
 		return nil, common.ErrNoSuchProduct
 	}
 	amount, err := decimal.NewFromString(in.Amount)
 	if err != nil {
+		logging.Error(ctx, "[StartOpenPositionOrder] amount failed: %v", err)
 		return nil, err
 	}
 
@@ -71,6 +74,7 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 		Amount:          amount,
 	}
 	if _, err := orderDao.New(db, model); err != nil {
+		logging.Error(ctx, "[StartOpenPositionOrder] New failed: %v", err)
 		return nil, err
 	}
 
@@ -98,6 +102,7 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 			},
 		}
 		if err := orderDao.Modify(db, model, lock, update); err != nil {
+			logging.Error(ctx, "[StartOpenPositionOrder] Modify failed: %v", err)
 			return nil, err
 		}
 		return nil, err
@@ -117,16 +122,19 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 
 	model, err := orderDao.Get(db, query)
 	if err != nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] Get failed: %v", err)
 		return nil, err
 	}
 
 	if model == nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] Get failed: %v", common.ErrNoSuchOrder)
 		return nil, common.ErrNoSuchOrder
 	}
 
 	orderStatus := dbModels.OrderStatus_Finished
 	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
 	if err != nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] NewFromString failed: %v", err)
 		return nil, common.ErrInternal
 	}
 	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
@@ -140,6 +148,7 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 		OrderStatus: &orderStatus,
 		UnitPrice:   &unitPrice,
 	}); err != nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] Modify failed: %v", err)
 		return nil, err
 	}
 
@@ -147,6 +156,7 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 }
 
 func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.StartClosePositionOrderReq) (*order.StartClosePositionOrderRes, error) {
+
 	return nil, common.ErrNotImplemented
 }
 
@@ -163,10 +173,12 @@ func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*
 
 	model, err := orderDao.Get(db, query)
 	if err != nil {
+		logging.Error(ctx, "[FailOrder] Get failed: %v", err)
 		return nil, err
 	}
 
 	if model == nil {
+		logging.Error(ctx, "[FailOrder] Get failed: %v", common.ErrNoSuchOrder)
 		return nil, common.ErrNoSuchOrder
 	}
 
@@ -186,6 +198,7 @@ func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*
 		&orderDao.UpdateModel{
 			OrderStatus: &orderStatus,
 		}); err != nil {
+		logging.Error(ctx, "[FailOrder] Modify failed: %v", err)
 		return nil, err
 	}
 
@@ -233,6 +246,7 @@ func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*
 
 	models, paginationInfo, err := orderDao.GetsWithPagination(db, query, in.Pagination)
 	if err != nil {
+		logging.Error(ctx, "[FailOrder] GetsWithPagination failed: %v", err)
 		return nil, err
 	}
 
