@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	common "github.com/paper-trade-chatbot/be-common"
 	"github.com/paper-trade-chatbot/be-order/dao/orderDao"
@@ -12,6 +13,7 @@ import (
 	"github.com/paper-trade-chatbot/be-order/pubsub"
 	"github.com/paper-trade-chatbot/be-order/service"
 	"github.com/paper-trade-chatbot/be-proto/order"
+	"github.com/paper-trade-chatbot/be-proto/position"
 	"github.com/paper-trade-chatbot/be-proto/product"
 	"github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
 	"github.com/shopspring/decimal"
@@ -25,6 +27,7 @@ type OrderIntf interface {
 	FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error)
 	RollbackOrder(ctx context.Context, in *order.RollbackOrderReq) (*order.RollbackOrderRes, error)
 	GetOrders(ctx context.Context, in *order.GetOrdersReq) (*order.GetOrdersRes, error)
+	CheckOrderProcess(ctx context.Context, in *order.CheckOrderProcessReq) (*order.CheckOrderProcessRes, error)
 }
 
 type OrderImpl struct {
@@ -83,6 +86,10 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 	if _, err = pubsub.GetPublisher[*rabbitmq.OpenPositionModel](ctx).Produce(ctx, message); err != nil {
 		logging.Error(ctx, "[StartOpenPositionOrder] error: %v", err)
 		status := dbModels.OrderStatus_Failed
+		pending := dbModels.OrderStatus_Pending
+		lock := &orderDao.QueryModel{
+			OrderStatus: &pending,
+		}
 		update := &orderDao.UpdateModel{
 			OrderStatus: &status,
 			Remark: &sql.NullString{
@@ -90,7 +97,7 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 				String: "unable to publish in rabbitmq",
 			},
 		}
-		if err := orderDao.Modify(db, model, update); err != nil {
+		if err := orderDao.Modify(db, model, lock, update); err != nil {
 			return nil, err
 		}
 		return nil, err
@@ -102,7 +109,41 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 }
 
 func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.FinishOpenPositionOrderReq) (*order.FinishOpenPositionOrderRes, error) {
-	return nil, common.ErrNotImplemented
+	db := database.GetDB()
+
+	query := &orderDao.QueryModel{
+		ID: []uint64{in.Id},
+	}
+
+	model, err := orderDao.Get(db, query)
+	if err != nil {
+		return nil, err
+	}
+
+	if model == nil {
+		return nil, common.ErrNoSuchOrder
+	}
+
+	orderStatus := dbModels.OrderStatus_Finished
+	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
+	if err != nil {
+		return nil, common.ErrInternal
+	}
+	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
+
+	pending := dbModels.OrderStatus_Pending
+	lock := &orderDao.QueryModel{
+		OrderStatus: &pending,
+		UnitPrice:   &decimal.NullDecimal{},
+	}
+	if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
+		OrderStatus: &orderStatus,
+		UnitPrice:   &unitPrice,
+	}); err != nil {
+		return nil, err
+	}
+
+	return &order.FinishOpenPositionOrderRes{}, nil
 }
 
 func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.StartClosePositionOrderReq) (*order.StartClosePositionOrderRes, error) {
@@ -114,7 +155,41 @@ func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.F
 }
 
 func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error) {
-	return nil, common.ErrNotImplemented
+	db := database.GetDB()
+
+	query := &orderDao.QueryModel{
+		ID: []uint64{in.Id},
+	}
+
+	model, err := orderDao.Get(db, query)
+	if err != nil {
+		return nil, err
+	}
+
+	if model == nil {
+		return nil, common.ErrNoSuchOrder
+	}
+
+	if model.OrderStatus != dbModels.OrderStatus_Pending {
+		return nil, common.ErrOrderNotPending
+	}
+
+	pending := dbModels.OrderStatus_Pending
+
+	orderStatus := dbModels.OrderStatus_Failed
+	if err = orderDao.Modify(
+		db,
+		model,
+		&orderDao.QueryModel{
+			OrderStatus: &pending,
+		},
+		&orderDao.UpdateModel{
+			OrderStatus: &orderStatus,
+		}); err != nil {
+		return nil, err
+	}
+
+	return &order.FailOrderRes{}, nil
 }
 
 func (impl *OrderImpl) RollbackOrder(ctx context.Context, in *order.RollbackOrderReq) (*order.RollbackOrderRes, error) {
@@ -122,5 +197,106 @@ func (impl *OrderImpl) RollbackOrder(ctx context.Context, in *order.RollbackOrde
 }
 
 func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*order.GetOrdersRes, error) {
-	return nil, common.ErrNotImplemented
+	db := database.GetDB()
+
+	query := &orderDao.QueryModel{
+		ID:           in.Id,
+		MemberID:     in.MemberID,
+		ExchangeCode: in.ExchangeCode,
+		ProductCode:  in.ProductCode,
+	}
+
+	if in.CreatedFrom != nil {
+		createdFrom := time.Unix(*in.CreatedFrom, 0)
+		query.CreatedFrom = &createdFrom
+	}
+
+	if in.CreatedTo != nil {
+		createdTo := time.Unix(*in.CreatedTo, 0)
+		query.CreatedTo = &createdTo
+	}
+
+	if in.TransactionType != nil {
+		transactionType := dbModels.TransactionType(*in.TransactionType)
+		query.TransactionType = &transactionType
+	}
+
+	if in.Type != nil {
+		productType := dbModels.ProductType(*in.Type)
+		query.ProductType = &productType
+	}
+
+	if in.TradeType != nil {
+		tradeType := dbModels.TradeType(*in.TradeType)
+		query.TradeType = &tradeType
+	}
+
+	models, paginationInfo, err := orderDao.GetsWithPagination(db, query, in.Pagination)
+	if err != nil {
+		return nil, err
+	}
+
+	orders := []*order.Order{}
+
+	for _, m := range models {
+		o := &order.Order{
+			Id:              m.ID,
+			MemberID:        m.MemberID,
+			OrderStatus:     order.OrderStatus(m.OrderStatus),
+			TransactionType: order.TransactionType(m.TransactionType),
+			Type:            product.ProductType(m.ProductType),
+			ExchangeCode:    m.ExchangeCode,
+			ProductCode:     m.ProductCode,
+			TradeType:       position.TradeType(m.TradeType),
+			Amount:          m.Amount.String(),
+			CreatedAt:       m.CreatedAt.Unix(),
+		}
+		if m.UnitPrice.Valid {
+			unitPrice := m.UnitPrice.Decimal.String()
+			o.UnitPrice = &unitPrice
+		}
+		if m.FinishedAt.Valid {
+			finishedAt := m.FinishedAt.Time.Unix()
+			o.FinishedAt = &finishedAt
+		}
+		if m.RollbackerID.Valid {
+			rollbackerID := uint64(m.RollbackerID.Int64)
+			o.RollbackerID = &rollbackerID
+		}
+		if m.RollbackedAt.Valid {
+			rollbackedAt := m.RollbackedAt.Time.Unix()
+			o.RollbackedAt = &rollbackedAt
+		}
+		if m.Remark.Valid {
+			o.Remark = &m.Remark.String
+		}
+
+		orders = append(orders, o)
+	}
+
+	return &order.GetOrdersRes{
+		Orders:         orders,
+		PaginationInfo: paginationInfo,
+	}, nil
+}
+
+func (impl *OrderImpl) CheckOrderProcess(ctx context.Context, in *order.CheckOrderProcessReq) (*order.CheckOrderProcessRes, error) {
+	db := database.GetDB()
+
+	query := &orderDao.QueryModel{
+		ID: []uint64{in.Id},
+	}
+
+	model, err := orderDao.Get(db, query)
+	if err != nil {
+		return nil, err
+	}
+
+	if model == nil {
+		return nil, common.ErrNoSuchOrder
+	}
+
+	return &order.CheckOrderProcessRes{
+		OrderStatus: order.OrderStatus(model.OrderStatus),
+	}, nil
 }

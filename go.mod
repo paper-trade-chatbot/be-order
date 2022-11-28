@@ -17,13 +17,13 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/jinzhu/gorm v1.9.16
-	github.com/paper-trade-chatbot/be-common v0.0.0-20221117030101-61df3f5c1996
-	github.com/paper-trade-chatbot/be-proto v0.0.0-20221117074505-6a905a20b634
+	github.com/paper-trade-chatbot/be-common v0.0.0-20221128033441-a7c3b93d87a3
+	github.com/paper-trade-chatbot/be-proto v0.0.0-20221128061655-b27938e36108
 	github.com/paper-trade-chatbot/be-pubsub v0.0.0-20221123022717-a8fa79fc71c2
 	github.com/shopspring/decimal v1.3.1
 	github.com/tinylib/msgp v1.1.6
 	golang.org/x/net v0.2.0
-	google.golang.org/grpc v1.50.1
+	google.golang.org/grpc v1.51.0
 	gorm.io/driver/mysql v1.4.4
 	gorm.io/gorm v1.24.1
 )
@@ -32,7 +32,7 @@ require (
 	cloud.google.com/go v0.105.0 // indirect
 	cloud.google.com/go/compute v1.12.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.1 // indirect
-	cloud.google.com/go/longrunning v0.1.1 // indirect
+	cloud.google.com/go/longrunning v0.3.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
@@ -73,7 +73,7 @@ require (
 	golang.org/x/time v0.2.0 // indirect
 	google.golang.org/api v0.103.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20221027153422-115e99e71e1c // indirect
+	google.golang.org/genproto v0.0.0-20221118155620-16455021b5e6 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

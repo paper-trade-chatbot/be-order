@@ -57,6 +57,7 @@ type QueryModel struct {
 type UpdateModel struct {
 	OrderStatus  *dbModels.OrderStatus
 	UnitPrice    *decimal.NullDecimal
+	FinishedAt   *sql.NullTime
 	RollbackerID *sql.NullInt64
 	RollbackedAt *sql.NullTime
 	Remark       *sql.NullString
@@ -155,13 +156,16 @@ func GetsWithPagination(tx *gorm.DB, query *QueryModel, paginate *general.Pagina
 }
 
 // Gets return records as raw-data-form
-func Modify(tx *gorm.DB, model *dbModels.OrderModel, update *UpdateModel) error {
+func Modify(tx *gorm.DB, model *dbModels.OrderModel, lock *QueryModel, update *UpdateModel) error {
 	attrs := map[string]interface{}{}
 	if update.OrderStatus != nil {
 		attrs["order_status"] = *update.OrderStatus
 	}
 	if update.UnitPrice != nil {
 		attrs["unit_price"] = *update.UnitPrice
+	}
+	if update.FinishedAt != nil {
+		attrs["finished_at"] = *update.FinishedAt
 	}
 	if update.RollbackerID != nil {
 		attrs["rollbacker_id"] = *update.RollbackerID
@@ -173,65 +177,15 @@ func Modify(tx *gorm.DB, model *dbModels.OrderModel, update *UpdateModel) error 
 		attrs["remark"] = *update.Remark
 	}
 
-	if update.OrderStatus == nil &&
-		update.UnitPrice == nil &&
-		update.RollbackerID == nil &&
-		update.RollbackedAt == nil {
-		err := tx.Table(table).
-			Model(dbModels.OrderModel{}).
-			Where(table+".id = ?", model.ID).
-			Updates(attrs).Error
-		return err
-	}
-
-	if update.OrderStatus != nil &&
-		update.UnitPrice != nil &&
-		update.RollbackerID != nil &&
-		update.RollbackedAt != nil {
-		err := tx.Table(table).
-			Model(dbModels.OrderModel{}).
-			Where(table+".id = ? AND "+table+".order_status = ? AND "+table+".unit_price = ? AND "+table+".rollbacker_id = ? AND "+table+".rollbacked_at = ?",
-				model.ID,
-				model.OrderStatus,
-				model.UnitPrice,
-				model.RollbackerID,
-				model.RollbackedAt).
-			Updates(attrs).Error
-		return err
-	}
-
-	if update.OrderStatus != nil &&
-		update.UnitPrice != nil {
-		err := tx.Table(table).
-			Model(dbModels.OrderModel{}).
-			Where(table+".id = ? AND "+table+".order_status = ? AND "+table+".unit_price = ?",
-				model.ID,
-				model.OrderStatus,
-				model.UnitPrice).
-			Updates(attrs).Error
-		return err
-	}
-
-	if update.RollbackerID != nil &&
-		update.RollbackedAt != nil {
-		err := tx.Table(table).
-			Model(dbModels.OrderModel{}).
-			Where(table+".id = ? AND "+table+".rollbacker_id = ? AND "+table+".rollbacked_at = ?",
-				model.ID,
-				model.RollbackerID,
-				model.RollbackedAt).
-			Updates(attrs).Error
-		return err
+	if lock == nil {
+		lock = &QueryModel{}
 	}
 
 	err := tx.Table(table).
 		Model(dbModels.OrderModel{}).
-		Where(table+".id = ?",
-			model.ID,
-			model.RollbackerID,
-			model.RollbackedAt).
+		Where(table+".id = ?", model.ID).
+		Scopes(queryChain(lock)).
 		Updates(attrs).Error
-
 	return err
 }
 
