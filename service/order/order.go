@@ -114,6 +114,7 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 }
 
 func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.FinishOpenPositionOrderReq) (*order.FinishOpenPositionOrderRes, error) {
+	logging.Info(ctx, "[FinishOpenPositionOrder] in: %#v", in)
 	db := database.GetDB()
 
 	query := &orderDao.QueryModel{
@@ -129,6 +130,38 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 	if model == nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] Get failed: %v", common.ErrNoSuchOrder)
 		return nil, common.ErrNoSuchOrder
+	}
+
+	positionRes, err := service.Impl.PositionIntf.OpenPosition(ctx, &position.OpenPositionReq{
+		MemberID:     model.MemberID,
+		Type:         product.ProductType(model.ProductType),
+		ExchangeCode: model.ExchangeCode,
+		ProductCode:  model.ProductCode,
+		TradeType:    position.TradeType(model.TradeType),
+		Amount:       model.Amount.String(),
+		UnitPrice:    in.UnitPrice,
+	})
+	if err != nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] OpenPosition failed: %v", err)
+
+		fail := dbModels.OrderStatus_Failed
+		remark := &sql.NullString{
+			Valid:  true,
+			String: "failed to open position",
+		}
+		pending := dbModels.OrderStatus_Pending
+		lock := &orderDao.QueryModel{
+			OrderStatus: &pending,
+			UnitPrice:   &decimal.NullDecimal{},
+		}
+		if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
+			OrderStatus: &fail,
+			Remark:      remark,
+		}); err != nil {
+			logging.Error(ctx, "[FinishOpenPositionOrder] Modify failed: %v", err)
+		}
+
+		return nil, err
 	}
 
 	orderStatus := dbModels.OrderStatus_Finished
@@ -147,6 +180,14 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 	if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
 		OrderStatus: &orderStatus,
 		UnitPrice:   &unitPrice,
+		FinishedAt: &sql.NullTime{
+			Valid: true,
+			Time:  time.Unix(in.FinishedAt, 0),
+		},
+		PositionID: &sql.NullInt64{
+			Valid: true,
+			Int64: int64(positionRes.Id),
+		},
 	}); err != nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] Modify failed: %v", err)
 		return nil, err

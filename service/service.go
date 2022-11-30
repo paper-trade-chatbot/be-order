@@ -8,8 +8,10 @@ import (
 
 	"github.com/paper-trade-chatbot/be-order/config"
 	"github.com/paper-trade-chatbot/be-order/service/member"
+	"github.com/paper-trade-chatbot/be-order/service/position"
 	"github.com/paper-trade-chatbot/be-order/service/product"
 	memberGrpc "github.com/paper-trade-chatbot/be-proto/member"
+	positionGrpc "github.com/paper-trade-chatbot/be-proto/position"
 	productGrpc "github.com/paper-trade-chatbot/be-proto/product"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -24,11 +26,16 @@ var (
 	ProductServiceHost    = config.GetString("PRODUCT_GRPC_HOST")
 	ProductServerGRpcPort = config.GetString("PRODUCT_GRPC_PORT")
 	productServiceConn    *grpc.ClientConn
+
+	PositionServiceHost    = config.GetString("POSITION_GRPC_HOST")
+	PositionServerGRpcPort = config.GetString("POSITION_GRPC_PORT")
+	positionServiceConn    *grpc.ClientConn
 )
 
 type ServiceImpl struct {
-	MemberIntf  member.MemberIntf
-	ProductIntf product.ProductIntf
+	MemberIntf   member.MemberIntf
+	ProductIntf  product.ProductIntf
+	PositionIntf position.PositionIntf
 }
 
 func GrpcDial(addr string) (*grpc.ClientConn, error) {
@@ -60,11 +67,22 @@ func Initialize(ctx context.Context) {
 	fmt.Println("dial done")
 	productConn := productGrpc.NewProductServiceClient(productServiceConn)
 	Impl.ProductIntf = product.New(productConn)
+
+	addr = PositionServiceHost + ":" + PositionServerGRpcPort
+	fmt.Println("dial to order grpc server...", addr)
+	positionServiceConn, err = GrpcDial(addr)
+	if err != nil {
+		fmt.Println("Can not connect to gRPC server:", err)
+	}
+	fmt.Println("dial done")
+	positionConn := positionGrpc.NewPositionServiceClient(positionServiceConn)
+	Impl.PositionIntf = position.New(positionConn)
 }
 
 func Finalize(ctx context.Context) {
 	memberServiceConn.Close()
 	productServiceConn.Close()
+	positionServiceConn.Close()
 }
 
 func clientInterceptor(ctx context.Context, method string, req interface{}, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {

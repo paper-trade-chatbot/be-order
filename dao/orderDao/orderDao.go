@@ -57,6 +57,7 @@ type QueryModel struct {
 type UpdateModel struct {
 	OrderStatus  *dbModels.OrderStatus
 	UnitPrice    *decimal.NullDecimal
+	PositionID   *sql.NullInt64
 	FinishedAt   *sql.NullTime
 	RollbackerID *sql.NullInt64
 	RollbackedAt *sql.NullTime
@@ -163,6 +164,9 @@ func Modify(tx *gorm.DB, model *dbModels.OrderModel, lock *QueryModel, update *U
 	}
 	if update.UnitPrice != nil {
 		attrs["unit_price"] = *update.UnitPrice
+	}
+	if update.PositionID != nil {
+		attrs["position_id"] = *update.PositionID
 	}
 	if update.FinishedAt != nil {
 		attrs["finished_at"] = *update.FinishedAt
