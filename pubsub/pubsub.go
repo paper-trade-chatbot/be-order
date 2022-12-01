@@ -10,7 +10,8 @@ import (
 	"github.com/paper-trade-chatbot/be-order/logging"
 	bePubsub "github.com/paper-trade-chatbot/be-pubsub"
 
-	rabbitmqOrder "github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
+	rabbitmqClosePosition "github.com/paper-trade-chatbot/be-pubsub/order/closePosition/rabbitmq"
+	rabbitmqOpenPosition "github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
 )
 
 var publishers = map[string]interface{}{}
@@ -33,12 +34,28 @@ func Initialize(ctx context.Context) {
 
 		var newErr error
 		for ok := true; ok; ok = newErr != nil {
-			if publisher, err := rabbitmqOrder.NewPublisher(
+			if publisher, err := rabbitmqOpenPosition.NewPublisher(
 				config.GetString("RABBITMQ_USERNAME"),
 				config.GetString("RABBITMQ_PASSWORD"),
 				config.GetString("RABBITMQ_HOST"),
 				config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
-				if err = registerPublisher[*rabbitmqOrder.OpenPositionModel](publisher); err != nil {
+				if err = registerPublisher[*rabbitmqOpenPosition.OpenPositionModel](publisher); err != nil {
+					logging.Error(ctx, "registerPublisher error %v", err)
+				}
+			} else {
+				newErr = err
+				logging.Error(ctx, "NewPublisher error %v", err)
+				time.Sleep(time.Second)
+			}
+		}
+
+		for ok := true; ok; ok = newErr != nil {
+			if publisher, err := rabbitmqClosePosition.NewPublisher(
+				config.GetString("RABBITMQ_USERNAME"),
+				config.GetString("RABBITMQ_PASSWORD"),
+				config.GetString("RABBITMQ_HOST"),
+				config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
+				if err = registerPublisher[*rabbitmqClosePosition.ClosePositionModel](publisher); err != nil {
 					logging.Error(ctx, "registerPublisher error %v", err)
 				}
 			} else {

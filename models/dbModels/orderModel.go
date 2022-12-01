@@ -62,4 +62,5 @@ type OrderModel struct {
 	RollbackerID        sql.NullInt64       `gorm:"column:rollbacker_id"`
 	RollbackedAt        sql.NullTime        `gorm:"column:rollbacked_at"`
 	Remark              sql.NullString      `gorm:"column:remark"`
+	FailCode            sql.NullInt64       `gorm:"column:fail_code"`
 }

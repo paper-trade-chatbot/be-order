@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS `be-order`.`order`
     `rollbacker_id` BIGINT UNSIGNED NULL DEFAULT NULL COMMENT '回滾者id',
     `rollbacked_at` TIMESTAMP NULL DEFAULT NULL COMMENT '回滾時間',
     `remark` VARCHAR(128) NULL DEFAULT NULL COMMENT '備註',
+    `fail_code` BIGINT UNSIGNED NULL DEFAULT NULL COMMENT '失敗代碼',
 
     PRIMARY KEY (`id`),
     UNIQUE INDEX (`member_id`,`exchange_code`, `product_code`,`created_at`)

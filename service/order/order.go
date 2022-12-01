@@ -6,6 +6,7 @@ import (
 	"time"
 
 	common "github.com/paper-trade-chatbot/be-common"
+	"github.com/paper-trade-chatbot/be-common/pagination"
 	"github.com/paper-trade-chatbot/be-order/dao/orderDao"
 	"github.com/paper-trade-chatbot/be-order/database"
 	"github.com/paper-trade-chatbot/be-order/logging"
@@ -15,7 +16,8 @@ import (
 	"github.com/paper-trade-chatbot/be-proto/order"
 	"github.com/paper-trade-chatbot/be-proto/position"
 	"github.com/paper-trade-chatbot/be-proto/product"
-	"github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
+	rabbitmqClosePosition "github.com/paper-trade-chatbot/be-pubsub/order/closePosition/rabbitmq"
+	rabbitmqOpenPosition "github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
 	"github.com/shopspring/decimal"
 )
 
@@ -78,16 +80,16 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 		return nil, err
 	}
 
-	message := &rabbitmq.OpenPositionModel{
+	message := &rabbitmqOpenPosition.OpenPositionModel{
 		ID:           model.ID,
 		MemberID:     in.MemberID,
 		ExchangeCode: in.ExchangeCode,
 		ProductCode:  in.ProductCode,
-		TradeType:    rabbitmq.TradeType(in.TradeType),
+		TradeType:    rabbitmqOpenPosition.TradeType(in.TradeType),
 		Amount:       amount,
 	}
 
-	if _, err = pubsub.GetPublisher[*rabbitmq.OpenPositionModel](ctx).Produce(ctx, message); err != nil {
+	if _, err = pubsub.GetPublisher[*rabbitmqOpenPosition.OpenPositionModel](ctx).Produce(ctx, message); err != nil {
 		logging.Error(ctx, "[StartOpenPositionOrder] error: %v", err)
 		status := dbModels.OrderStatus_Failed
 		pending := dbModels.OrderStatus_Pending
@@ -116,6 +118,13 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.FinishOpenPositionOrderReq) (*order.FinishOpenPositionOrderRes, error) {
 	logging.Info(ctx, "[FinishOpenPositionOrder] in: %#v", in)
 	db := database.GetDB()
+
+	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
+	if err != nil {
+		logging.Error(ctx, "[FinishOpenPositionOrder] NewFromString failed: %v", err)
+		return nil, common.ErrInternal
+	}
+	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
 
 	query := &orderDao.QueryModel{
 		ID: []uint64{in.Id},
@@ -165,12 +174,6 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 	}
 
 	orderStatus := dbModels.OrderStatus_Finished
-	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
-	if err != nil {
-		logging.Error(ctx, "[FinishOpenPositionOrder] NewFromString failed: %v", err)
-		return nil, common.ErrInternal
-	}
-	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
 
 	pending := dbModels.OrderStatus_Pending
 	lock := &orderDao.QueryModel{
@@ -193,16 +196,189 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 		return nil, err
 	}
 
-	return &order.FinishOpenPositionOrderRes{}, nil
+	return &order.FinishOpenPositionOrderRes{
+		PositionID: positionRes.Id,
+	}, nil
 }
 
 func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.StartClosePositionOrderReq) (*order.StartClosePositionOrderRes, error) {
+	logging.Info(ctx, "[StartClosePositionOrder] in: %#v", in)
+	db := database.GetDB()
 
-	return nil, common.ErrNotImplemented
+	positionRes, err := service.Impl.PositionIntf.PendingToClosePosition(ctx, &position.PendingToClosePositionReq{
+		Id:          in.Id,
+		CloseAmount: in.Amount,
+	})
+
+	if err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", err)
+		return nil, err
+	}
+
+	if !positionRes.PreemptSuccess {
+		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", common.ErrProcessStateNotPending)
+		return nil, common.ErrProcessStateNotPending
+	}
+
+	getPositionRes, err := service.Impl.PositionIntf.GetPositions(ctx, &position.GetPositionsReq{
+		Id:         []uint64{in.Id},
+		Pagination: pagination.NewPagination(10),
+	})
+	if err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] GetPositions failed: %v", err)
+		return nil, err
+	}
+
+	if len(getPositionRes.Positions) == 0 {
+		logging.Error(ctx, "[StartClosePositionOrder] GetPositions failed: %v", common.ErrNoSuchPosition)
+		return nil, common.ErrNoSuchPosition
+	}
+
+	amount, err := decimal.NewFromString(in.Amount)
+	if err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] amount failed: %v", err)
+		return nil, err
+	}
+
+	unitPrice, err := decimal.NewFromString(getPositionRes.Positions[0].UnitPrice)
+	if err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] unitPrice failed: %v", err)
+		return nil, err
+	}
+
+	model := &dbModels.OrderModel{
+		MemberID:        getPositionRes.Positions[0].MemberID,
+		OrderStatus:     dbModels.OrderStatus_Pending,
+		TransactionType: dbModels.TransactionType_ClosePosition,
+		ProductType:     dbModels.ProductType(getPositionRes.Positions[0].Type),
+		ExchangeCode:    getPositionRes.Positions[0].ExchangeCode,
+		ProductCode:     getPositionRes.Positions[0].ProductCode,
+		TradeType:       dbModels.TradeType(getPositionRes.Positions[0].TradeType),
+		Amount:          amount,
+		PositionID: sql.NullInt64{
+			Valid: true,
+			Int64: int64(getPositionRes.Positions[0].Id),
+		},
+	}
+	if _, err := orderDao.New(db, model); err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] New failed: %v", err)
+		return nil, err
+	}
+
+	message := &rabbitmqClosePosition.ClosePositionModel{
+		ID:           model.ID,
+		MemberID:     getPositionRes.Positions[0].MemberID,
+		PositionID:   getPositionRes.Positions[0].Id,
+		ExchangeCode: getPositionRes.Positions[0].ExchangeCode,
+		ProductCode:  getPositionRes.Positions[0].ProductCode,
+		TradeType:    rabbitmqClosePosition.TradeType(getPositionRes.Positions[0].TradeType),
+		OpenPrice:    unitPrice,
+		CloseAmount:  amount,
+	}
+
+	if _, err = pubsub.GetPublisher[*rabbitmqClosePosition.ClosePositionModel](ctx).Produce(ctx, message); err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] error: %v", err)
+		status := dbModels.OrderStatus_Failed
+		pending := dbModels.OrderStatus_Pending
+		lock := &orderDao.QueryModel{
+			OrderStatus: &pending,
+		}
+		update := &orderDao.UpdateModel{
+			OrderStatus: &status,
+			Remark: &sql.NullString{
+				Valid:  true,
+				String: "unable to publish in rabbitmq",
+			},
+		}
+		if err := orderDao.Modify(db, model, lock, update); err != nil {
+			logging.Error(ctx, "[StartClosePositionOrder] Modify failed: %v", err)
+			return nil, err
+		}
+		return nil, err
+	}
+
+	return &order.StartClosePositionOrderRes{
+		Id: model.ID,
+	}, nil
 }
 
 func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.FinishClosePositionOrderReq) (*order.FinishClosePositionOrderRes, error) {
-	return nil, common.ErrNotImplemented
+	logging.Info(ctx, "[FinishClosePositionOrder] in: %#v", in)
+	db := database.GetDB()
+
+	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
+	if err != nil {
+		logging.Error(ctx, "[FinishClosePositionOrder] NewFromString failed: %v", err)
+		return nil, common.ErrInternal
+	}
+	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
+
+	query := &orderDao.QueryModel{
+		ID: []uint64{in.Id},
+	}
+
+	model, err := orderDao.Get(db, query)
+	if err != nil {
+		logging.Error(ctx, "[FinishClosePositionOrder] Get failed: %v", err)
+		return nil, err
+	}
+
+	if model == nil {
+		logging.Error(ctx, "[FinishClosePositionOrder] Get failed: %v", common.ErrNoSuchOrder)
+		return nil, common.ErrNoSuchOrder
+	}
+
+	_, err = service.Impl.PositionIntf.ClosePosition(ctx, &position.ClosePositionReq{
+		Id:          in.PositionID,
+		CloseAmount: in.CloseAmount,
+	})
+	if err != nil {
+		logging.Error(ctx, "[FinishClosePositionOrder] ClosePosition failed: %v", err)
+
+		fail := dbModels.OrderStatus_Failed
+		remark := &sql.NullString{
+			Valid:  true,
+			String: "failed to close position",
+		}
+		pending := dbModels.OrderStatus_Pending
+		lock := &orderDao.QueryModel{
+			OrderStatus: &pending,
+			UnitPrice:   &decimal.NullDecimal{},
+		}
+		if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
+			OrderStatus: &fail,
+			Remark:      remark,
+		}); err != nil {
+			logging.Error(ctx, "[FinishClosePositionOrder] Modify failed: %v", err)
+		}
+
+		return nil, err
+	}
+
+	orderStatus := dbModels.OrderStatus_Finished
+
+	pending := dbModels.OrderStatus_Pending
+	lock := &orderDao.QueryModel{
+		OrderStatus: &pending,
+		UnitPrice:   &decimal.NullDecimal{},
+	}
+	if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
+		OrderStatus: &orderStatus,
+		UnitPrice:   &unitPrice,
+		FinishedAt: &sql.NullTime{
+			Valid: true,
+			Time:  time.Unix(in.FinishedAt, 0),
+		},
+		PositionID: &sql.NullInt64{
+			Valid: true,
+			Int64: int64(in.PositionID),
+		},
+	}); err != nil {
+		logging.Error(ctx, "[FinishClosePositionOrder] Modify failed: %v", err)
+		return nil, err
+	}
+
+	return &order.FinishClosePositionOrderRes{}, nil
 }
 
 func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error) {
@@ -309,6 +485,10 @@ func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*
 		if m.UnitPrice.Valid {
 			unitPrice := m.UnitPrice.Decimal.String()
 			o.UnitPrice = &unitPrice
+		}
+		if m.TransactionRecordID.Valid {
+			transactionRecordID := uint64(m.TransactionRecordID.Int64)
+			o.TransactionRecordID = &transactionRecordID
 		}
 		if m.FinishedAt.Valid {
 			finishedAt := m.FinishedAt.Time.Unix()

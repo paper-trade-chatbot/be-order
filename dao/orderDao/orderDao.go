@@ -62,6 +62,7 @@ type UpdateModel struct {
 	RollbackerID *sql.NullInt64
 	RollbackedAt *sql.NullTime
 	Remark       *sql.NullString
+	FailCode     *sql.NullInt64
 }
 
 // New a row
@@ -179,6 +180,9 @@ func Modify(tx *gorm.DB, model *dbModels.OrderModel, lock *QueryModel, update *U
 	}
 	if update.Remark != nil {
 		attrs["remark"] = *update.Remark
+	}
+	if update.FailCode != nil {
+		attrs["fail_code"] = *update.FailCode
 	}
 
 	if lock == nil {
