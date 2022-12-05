@@ -77,7 +77,7 @@ func fetchFromCache(ctx *gin.Context, flags CacheKeyFlags) *CachedResponse {
 	// Try to fetch cached data from Redis.
 	str, err := redisCache.Get(ctx, key).Result()
 	data := []byte(str)
-	if err != nil && err != redis.Nil {
+	if err != nil && err.Error() != redis.Nil.Error() {
 		logger.Error(ctx, "Failed to fetch %s: %v", key, err)
 		return nil
 	}

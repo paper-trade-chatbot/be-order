@@ -3,7 +3,7 @@ module github.com/paper-trade-chatbot/be-order
 go 1.18
 
 require (
-	cloud.google.com/go/logging v1.5.0
+	cloud.google.com/go/logging v1.6.1
 	github.com/GoogleCloudPlatform/cloudsql-proxy v1.33.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-contrib/pprof v1.4.0
@@ -17,8 +17,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/jinzhu/gorm v1.9.16
-	github.com/paper-trade-chatbot/be-common v0.0.0-20221130092028-68afc55cddec
-	github.com/paper-trade-chatbot/be-proto v0.0.0-20221201074729-24568ec15382
+	github.com/paper-trade-chatbot/be-common v0.0.0-20221205062640-78d2d8199517
 	github.com/paper-trade-chatbot/be-pubsub v0.0.0-20221201031742-6145ca0ae7ef
 	github.com/shopspring/decimal v1.3.1
 	github.com/tinylib/msgp v1.1.6
@@ -30,7 +29,7 @@ require (
 
 require (
 	cloud.google.com/go v0.105.0 // indirect
-	cloud.google.com/go/compute v1.12.1 // indirect
+	cloud.google.com/go/compute v1.13.0 // indirect
 	cloud.google.com/go/compute/metadata v0.2.1 // indirect
 	cloud.google.com/go/longrunning v0.3.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
@@ -56,6 +55,7 @@ require (
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/paper-trade-chatbot/be-proto v0.0.0-20221205073319-5884a27006a5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.1 // indirect
 	github.com/philhofer/fwd v1.1.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
@@ -73,7 +73,7 @@ require (
 	golang.org/x/time v0.2.0 // indirect
 	google.golang.org/api v0.103.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20221118155620-16455021b5e6 // indirect
+	google.golang.org/genproto v0.0.0-20221202195650-67e5cbc046fd // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

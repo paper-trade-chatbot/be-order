@@ -10,6 +10,7 @@ import (
 type PositionIntf interface {
 	OpenPosition(ctx context.Context, in *position.OpenPositionReq) (*position.OpenPositionRes, error)
 	PendingToClosePosition(ctx context.Context, in *position.PendingToClosePositionReq) (*position.PendingToClosePositionRes, error)
+	StopPendingPosition(ctx context.Context, in *position.StopPendingPositionReq) (*position.StopPendingPositionRes, error)
 	ClosePosition(ctx context.Context, in *position.ClosePositionReq) (*position.ClosePositionRes, error)
 	GetPositions(ctx context.Context, in *position.GetPositionsReq) (*position.GetPositionsRes, error)
 	ModifyPosition(ctx context.Context, in *position.ModifyPositionReq) (*position.ModifyPositionRes, error)
@@ -40,6 +41,10 @@ func (impl *PositionImpl) ClosePosition(ctx context.Context, in *position.CloseP
 
 func (impl *PositionImpl) PendingToClosePosition(ctx context.Context, in *position.PendingToClosePositionReq) (*position.PendingToClosePositionRes, error) {
 	return impl.PositionClient.PendingToClosePosition(ctx, in)
+}
+
+func (impl *PositionImpl) StopPendingPosition(ctx context.Context, in *position.StopPendingPositionReq) (*position.StopPendingPositionRes, error) {
+	return impl.PositionClient.StopPendingPosition(ctx, in)
 }
 
 func (impl *PositionImpl) GetPositions(ctx context.Context, in *position.GetPositionsReq) (*position.GetPositionsRes, error) {

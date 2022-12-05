@@ -7,10 +7,13 @@ import (
 
 	common "github.com/paper-trade-chatbot/be-common"
 	"github.com/paper-trade-chatbot/be-common/pagination"
+	"github.com/paper-trade-chatbot/be-order/cache"
 	"github.com/paper-trade-chatbot/be-order/dao/orderDao"
+	"github.com/paper-trade-chatbot/be-order/dao/orderProcessDao"
 	"github.com/paper-trade-chatbot/be-order/database"
 	"github.com/paper-trade-chatbot/be-order/logging"
 	"github.com/paper-trade-chatbot/be-order/models/dbModels"
+	"github.com/paper-trade-chatbot/be-order/models/redisModels"
 	"github.com/paper-trade-chatbot/be-order/pubsub"
 	"github.com/paper-trade-chatbot/be-order/service"
 	"github.com/paper-trade-chatbot/be-proto/order"
@@ -19,6 +22,7 @@ import (
 	rabbitmqClosePosition "github.com/paper-trade-chatbot/be-pubsub/order/closePosition/rabbitmq"
 	rabbitmqOpenPosition "github.com/paper-trade-chatbot/be-pubsub/order/openPosition/rabbitmq"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/status"
 )
 
 type OrderIntf interface {
@@ -29,7 +33,8 @@ type OrderIntf interface {
 	FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error)
 	RollbackOrder(ctx context.Context, in *order.RollbackOrderReq) (*order.RollbackOrderRes, error)
 	GetOrders(ctx context.Context, in *order.GetOrdersReq) (*order.GetOrdersRes, error)
-	CheckOrderProcess(ctx context.Context, in *order.CheckOrderProcessReq) (*order.CheckOrderProcessRes, error)
+	UpdateOrderProcess(ctx context.Context, in *order.UpdateOrderProcessReq) (*order.UpdateOrderProcessRes, error)
+	GetOrderProcess(ctx context.Context, in *order.GetOrderProcessReq) (*order.GetOrderProcessRes, error)
 }
 
 type OrderImpl struct {
@@ -43,6 +48,7 @@ func New() OrderIntf {
 func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.StartOpenPositionOrderReq) (*order.StartOpenPositionOrderRes, error) {
 	logging.Info(ctx, "[StartOpenPositionOrder] in: %#v", in)
 	db := database.GetDB()
+	rds, _ := cache.GetRedis()
 
 	productRes, err := service.Impl.ProductIntf.GetProduct(ctx, &product.GetProductReq{
 		Product: &product.GetProductReq_Code{
@@ -91,23 +97,24 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 
 	if _, err = pubsub.GetPublisher[*rabbitmqOpenPosition.OpenPositionModel](ctx).Produce(ctx, message); err != nil {
 		logging.Error(ctx, "[StartOpenPositionOrder] error: %v", err)
-		status := dbModels.OrderStatus_Failed
-		pending := dbModels.OrderStatus_Pending
-		lock := &orderDao.QueryModel{
-			OrderStatus: &pending,
-		}
-		update := &orderDao.UpdateModel{
-			OrderStatus: &status,
-			Remark: &sql.NullString{
-				Valid:  true,
-				String: "unable to publish in rabbitmq",
-			},
-		}
-		if err := orderDao.Modify(db, model, lock, update); err != nil {
-			logging.Error(ctx, "[StartOpenPositionOrder] Modify failed: %v", err)
-			return nil, err
+		failCode := uint64(status.Code(common.ErrUnablePushRabbitmq))
+		s, _ := status.FromError(common.ErrUnablePushRabbitmq)
+		remark := s.Message()
+		if _, err := impl.FailOrder(ctx, &order.FailOrderReq{
+			Id:       model.ID,
+			FailCode: &failCode,
+			Remark:   &remark,
+		}); err != nil {
+			logging.Error(ctx, "[StartOpenPositionOrder] failed to FailOrder [%d]: %v", model.ID, err)
 		}
 		return nil, err
+	}
+
+	if err = orderProcessDao.Update(ctx, rds, &redisModels.OrderProcessModel{
+		OrderID:      model.ID,
+		OrderProcess: redisModels.OrderProcess_Waiting,
+	}, nil); err != nil {
+		logging.Error(ctx, "[StartOpenPositionOrder] failed to Update OrderProcess [%d]: %v", model.ID, err)
 	}
 
 	return &order.StartOpenPositionOrderRes{
@@ -118,11 +125,28 @@ func (impl *OrderImpl) StartOpenPositionOrder(ctx context.Context, in *order.Sta
 func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.FinishOpenPositionOrderReq) (*order.FinishOpenPositionOrderRes, error) {
 	logging.Info(ctx, "[FinishOpenPositionOrder] in: %#v", in)
 	db := database.GetDB()
+	var orderErr error
+
+	defer func() {
+		if orderErr != nil {
+			failCode := uint64(status.Code(orderErr))
+			s, _ := status.FromError(orderErr)
+			remark := s.Message()
+			if _, err := impl.FailOrder(ctx, &order.FailOrderReq{
+				Id:       in.Id,
+				FailCode: &failCode,
+				Remark:   &remark,
+			}); err != nil {
+				logging.Error(ctx, "[FinishOpenPositionOrder] failed to FailOrder [%d]: %v", in.Id, err)
+			}
+		}
+	}()
 
 	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
 	if err != nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] NewFromString failed: %v", err)
-		return nil, common.ErrInternal
+		orderErr = err
+		return nil, err
 	}
 	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
 
@@ -133,11 +157,13 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 	model, err := orderDao.Get(db, query)
 	if err != nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] Get failed: %v", err)
+		orderErr = err
 		return nil, err
 	}
 
 	if model == nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] Get failed: %v", common.ErrNoSuchOrder)
+		orderErr = common.ErrNoSuchOrder
 		return nil, common.ErrNoSuchOrder
 	}
 
@@ -152,24 +178,7 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 	})
 	if err != nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] OpenPosition failed: %v", err)
-
-		fail := dbModels.OrderStatus_Failed
-		remark := &sql.NullString{
-			Valid:  true,
-			String: "failed to open position",
-		}
-		pending := dbModels.OrderStatus_Pending
-		lock := &orderDao.QueryModel{
-			OrderStatus: &pending,
-			UnitPrice:   &decimal.NullDecimal{},
-		}
-		if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
-			OrderStatus: &fail,
-			Remark:      remark,
-		}); err != nil {
-			logging.Error(ctx, "[FinishOpenPositionOrder] Modify failed: %v", err)
-		}
-
+		orderErr = common.ErrNoSuchOrder
 		return nil, err
 	}
 
@@ -193,6 +202,7 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 		},
 	}); err != nil {
 		logging.Error(ctx, "[FinishOpenPositionOrder] Modify failed: %v", err)
+		orderErr = err
 		return nil, err
 	}
 
@@ -204,21 +214,6 @@ func (impl *OrderImpl) FinishOpenPositionOrder(ctx context.Context, in *order.Fi
 func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.StartClosePositionOrderReq) (*order.StartClosePositionOrderRes, error) {
 	logging.Info(ctx, "[StartClosePositionOrder] in: %#v", in)
 	db := database.GetDB()
-
-	positionRes, err := service.Impl.PositionIntf.PendingToClosePosition(ctx, &position.PendingToClosePositionReq{
-		Id:          in.Id,
-		CloseAmount: in.Amount,
-	})
-
-	if err != nil {
-		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", err)
-		return nil, err
-	}
-
-	if !positionRes.PreemptSuccess {
-		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", common.ErrProcessStateNotPending)
-		return nil, common.ErrProcessStateNotPending
-	}
 
 	getPositionRes, err := service.Impl.PositionIntf.GetPositions(ctx, &position.GetPositionsReq{
 		Id:         []uint64{in.Id},
@@ -246,6 +241,21 @@ func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.St
 		return nil, err
 	}
 
+	positionRes, err := service.Impl.PositionIntf.PendingToClosePosition(ctx, &position.PendingToClosePositionReq{
+		Id:          in.Id,
+		CloseAmount: in.Amount,
+	})
+
+	if err != nil {
+		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", err)
+		return nil, err
+	}
+
+	if !positionRes.PreemptSuccess {
+		logging.Error(ctx, "[StartClosePositionOrder] PendingToClosePosition failed: %v", common.ErrProcessStateNotPending)
+		return nil, common.ErrProcessStateNotPending
+	}
+
 	model := &dbModels.OrderModel{
 		MemberID:        getPositionRes.Positions[0].MemberID,
 		OrderStatus:     dbModels.OrderStatus_Pending,
@@ -262,6 +272,11 @@ func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.St
 	}
 	if _, err := orderDao.New(db, model); err != nil {
 		logging.Error(ctx, "[StartClosePositionOrder] New failed: %v", err)
+		if _, err := service.Impl.PositionIntf.StopPendingPosition(ctx, &position.StopPendingPositionReq{
+			Id: in.Id,
+		}); err != nil {
+			logging.Error(ctx, "[StartClosePositionOrder] StopPendingPosition failed: %v", err)
+		}
 		return nil, err
 	}
 
@@ -278,21 +293,20 @@ func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.St
 
 	if _, err = pubsub.GetPublisher[*rabbitmqClosePosition.ClosePositionModel](ctx).Produce(ctx, message); err != nil {
 		logging.Error(ctx, "[StartClosePositionOrder] error: %v", err)
-		status := dbModels.OrderStatus_Failed
-		pending := dbModels.OrderStatus_Pending
-		lock := &orderDao.QueryModel{
-			OrderStatus: &pending,
+		failCode := uint64(status.Code(common.ErrUnablePushRabbitmq))
+		s, _ := status.FromError(common.ErrUnablePushRabbitmq)
+		remark := s.Message()
+		if _, err := impl.FailOrder(ctx, &order.FailOrderReq{
+			Id:       model.ID,
+			FailCode: &failCode,
+			Remark:   &remark,
+		}); err != nil {
+			logging.Error(ctx, "[StartClosePositionOrder] failed to FailOrder [%d]: %v", model.ID, err)
 		}
-		update := &orderDao.UpdateModel{
-			OrderStatus: &status,
-			Remark: &sql.NullString{
-				Valid:  true,
-				String: "unable to publish in rabbitmq",
-			},
-		}
-		if err := orderDao.Modify(db, model, lock, update); err != nil {
-			logging.Error(ctx, "[StartClosePositionOrder] Modify failed: %v", err)
-			return nil, err
+		if _, err := service.Impl.PositionIntf.StopPendingPosition(ctx, &position.StopPendingPositionReq{
+			Id: in.Id,
+		}); err != nil {
+			logging.Error(ctx, "[StartClosePositionOrder] StopPendingPosition failed: %v", err)
 		}
 		return nil, err
 	}
@@ -305,11 +319,33 @@ func (impl *OrderImpl) StartClosePositionOrder(ctx context.Context, in *order.St
 func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.FinishClosePositionOrderReq) (*order.FinishClosePositionOrderRes, error) {
 	logging.Info(ctx, "[FinishClosePositionOrder] in: %#v", in)
 	db := database.GetDB()
+	var orderErr error
+
+	defer func() {
+		if orderErr != nil {
+			failCode := uint64(status.Code(orderErr))
+			s, _ := status.FromError(orderErr)
+			remark := s.Message()
+			if _, err := impl.FailOrder(ctx, &order.FailOrderReq{
+				Id:       in.Id,
+				FailCode: &failCode,
+				Remark:   &remark,
+			}); err != nil {
+				logging.Error(ctx, "[FinishOpenPositionOrder] failed to FailOrder [%d]: %v", in.Id, err)
+			}
+			if _, err := service.Impl.PositionIntf.StopPendingPosition(ctx, &position.StopPendingPositionReq{
+				Id: in.PositionID,
+			}); err != nil {
+				logging.Error(ctx, "[FinishClosePositionOrder] StopPendingPosition failed: %v", err)
+			}
+		}
+	}()
 
 	unitPriceDeciaml, err := decimal.NewFromString(in.UnitPrice)
 	if err != nil {
 		logging.Error(ctx, "[FinishClosePositionOrder] NewFromString failed: %v", err)
-		return nil, common.ErrInternal
+		orderErr = err
+		return nil, err
 	}
 	unitPrice := decimal.NewNullDecimal(unitPriceDeciaml)
 
@@ -320,11 +356,13 @@ func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.F
 	model, err := orderDao.Get(db, query)
 	if err != nil {
 		logging.Error(ctx, "[FinishClosePositionOrder] Get failed: %v", err)
+		orderErr = err
 		return nil, err
 	}
 
 	if model == nil {
 		logging.Error(ctx, "[FinishClosePositionOrder] Get failed: %v", common.ErrNoSuchOrder)
+		orderErr = common.ErrNoSuchOrder
 		return nil, common.ErrNoSuchOrder
 	}
 
@@ -334,24 +372,7 @@ func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.F
 	})
 	if err != nil {
 		logging.Error(ctx, "[FinishClosePositionOrder] ClosePosition failed: %v", err)
-
-		fail := dbModels.OrderStatus_Failed
-		remark := &sql.NullString{
-			Valid:  true,
-			String: "failed to close position",
-		}
-		pending := dbModels.OrderStatus_Pending
-		lock := &orderDao.QueryModel{
-			OrderStatus: &pending,
-			UnitPrice:   &decimal.NullDecimal{},
-		}
-		if err = orderDao.Modify(db, model, lock, &orderDao.UpdateModel{
-			OrderStatus: &fail,
-			Remark:      remark,
-		}); err != nil {
-			logging.Error(ctx, "[FinishClosePositionOrder] Modify failed: %v", err)
-		}
-
+		orderErr = err
 		return nil, err
 	}
 
@@ -382,6 +403,7 @@ func (impl *OrderImpl) FinishClosePositionOrder(ctx context.Context, in *order.F
 }
 
 func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*order.FailOrderRes, error) {
+	logging.Info(ctx, "[FailOrder] in: %#v", in)
 	db := database.GetDB()
 
 	query := &orderDao.QueryModel{
@@ -404,17 +426,32 @@ func (impl *OrderImpl) FailOrder(ctx context.Context, in *order.FailOrderReq) (*
 	}
 
 	pending := dbModels.OrderStatus_Pending
-
 	orderStatus := dbModels.OrderStatus_Failed
+	update := &orderDao.UpdateModel{
+		OrderStatus: &orderStatus,
+	}
+	if in.FailCode != nil {
+		update.FailCode = &sql.NullInt64{
+			Valid: true,
+			Int64: int64(*in.FailCode),
+		}
+	}
+
+	if in.Remark != nil {
+		update.Remark = &sql.NullString{
+			Valid:  true,
+			String: *in.Remark,
+		}
+	}
+
 	if err = orderDao.Modify(
 		db,
 		model,
 		&orderDao.QueryModel{
 			OrderStatus: &pending,
 		},
-		&orderDao.UpdateModel{
-			OrderStatus: &orderStatus,
-		}); err != nil {
+		update,
+	); err != nil {
 		logging.Error(ctx, "[FailOrder] Modify failed: %v", err)
 		return nil, err
 	}
@@ -427,6 +464,7 @@ func (impl *OrderImpl) RollbackOrder(ctx context.Context, in *order.RollbackOrde
 }
 
 func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*order.GetOrdersRes, error) {
+	logging.Info(ctx, "[GetOrders] in: %#v", in)
 	db := database.GetDB()
 
 	query := &orderDao.QueryModel{
@@ -505,6 +543,10 @@ func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*
 		if m.Remark.Valid {
 			o.Remark = &m.Remark.String
 		}
+		if m.FailCode.Valid {
+			failCode := uint64(m.FailCode.Int64)
+			o.FailCode = &failCode
+		}
 
 		orders = append(orders, o)
 	}
@@ -515,23 +557,81 @@ func (impl *OrderImpl) GetOrders(ctx context.Context, in *order.GetOrdersReq) (*
 	}, nil
 }
 
-func (impl *OrderImpl) CheckOrderProcess(ctx context.Context, in *order.CheckOrderProcessReq) (*order.CheckOrderProcessRes, error) {
-	db := database.GetDB()
+func (impl *OrderImpl) UpdateOrderProcess(ctx context.Context, in *order.UpdateOrderProcessReq) (*order.UpdateOrderProcessRes, error) {
+	logging.Info(ctx, "[UpdateOrderProcess] in: %#v", in)
+	rds, _ := cache.GetRedis()
 
-	query := &orderDao.QueryModel{
-		ID: []uint64{in.Id},
+	model := &redisModels.OrderProcessModel{
+		OrderID:      in.Id,
+		OrderProcess: redisModels.OrderProcess(in.OrderProcess),
 	}
 
-	model, err := orderDao.Get(db, query)
-	if err != nil {
+	var expiration *time.Duration
+	if in.Expire != nil {
+		expirationInstance := time.Duration(*in.Expire)
+		expiration = &expirationInstance
+	}
+
+	if err := orderProcessDao.Update(ctx, rds, model, expiration); err != nil {
+		logging.Error(ctx, "[UpdateOrderProcess] Update failed: %v", err)
 		return nil, err
 	}
 
-	if model == nil {
-		return nil, common.ErrNoSuchOrder
+	return &order.UpdateOrderProcessRes{}, nil
+}
+
+func (impl *OrderImpl) GetOrderProcess(ctx context.Context, in *order.GetOrderProcessReq) (*order.GetOrderProcessRes, error) {
+	logging.Info(ctx, "[GetOrderProcess] in: %#v", in)
+	rds, _ := cache.GetRedis()
+	db := database.GetDB()
+
+	query := &orderProcessDao.QueryModel{
+		OrderID: in.Id,
 	}
 
-	return &order.CheckOrderProcessRes{
-		OrderStatus: order.OrderStatus(model.OrderStatus),
+	model, err := orderProcessDao.Get(ctx, rds, query)
+	if err != nil {
+		logging.Error(ctx, "[GetOrderProcess] Get failed: %v", err)
+		return nil, err
+	}
+	if model == nil {
+		model, err := orderDao.Get(db, &orderDao.QueryModel{
+			ID: []uint64{in.Id},
+		})
+		if err != nil {
+			logging.Error(ctx, "[GetOrderProcess] Get failed: %v", err)
+			return nil, err
+		}
+		if model == nil {
+			return nil, common.ErrNoSuchOrder
+		}
+
+		if model.OrderStatus == dbModels.OrderStatus_Finished {
+			return &order.GetOrderProcessRes{
+				OrderProcess: order.OrderProcess_OrderProcess_Finished,
+			}, nil
+		}
+
+		orderProcess := order.OrderProcess_OrderProcess_Unknown
+		if model.OrderStatus == dbModels.OrderStatus_Failed {
+			orderProcess = order.OrderProcess_OrderProcess_Failed
+		}
+
+		orderProcessModel := &redisModels.OrderProcessModel{
+			OrderID:      in.Id,
+			OrderProcess: redisModels.OrderProcess(orderProcess),
+		}
+
+		if err := orderProcessDao.Update(ctx, rds, orderProcessModel, nil); err != nil {
+			logging.Error(ctx, "[GetOrderProcess] Update failed: %v", err)
+			return nil, err
+		}
+		return &order.GetOrderProcessRes{
+			OrderProcess: orderProcess,
+		}, nil
+	}
+
+	return &order.GetOrderProcessRes{
+		OrderProcess: order.OrderProcess(model.OrderProcess),
 	}, nil
 }
