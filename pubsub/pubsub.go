@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/paper-trade-chatbot/be-order/config"
 	"github.com/paper-trade-chatbot/be-order/logging"
@@ -32,37 +31,30 @@ func Initialize(ctx context.Context) {
 		publisherLock.Lock()
 		defer publisherLock.Unlock()
 
-		var newErr error
-		for ok := true; ok; ok = newErr != nil {
-			if publisher, err := rabbitmqOpenPosition.NewPublisher(
-				config.GetString("RABBITMQ_USERNAME"),
-				config.GetString("RABBITMQ_PASSWORD"),
-				config.GetString("RABBITMQ_HOST"),
-				config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
-				if err = registerPublisher[*rabbitmqOpenPosition.OpenPositionModel](publisher); err != nil {
-					logging.Error(ctx, "registerPublisher error %v", err)
-				}
-			} else {
-				newErr = err
-				logging.Error(ctx, "NewPublisher error %v", err)
-				time.Sleep(time.Second)
+		if publisher, err := rabbitmqOpenPosition.NewPublisher(
+			config.GetString("RABBITMQ_USERNAME"),
+			config.GetString("RABBITMQ_PASSWORD"),
+			config.GetString("RABBITMQ_HOST"),
+			config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
+			if err = registerPublisher[*rabbitmqOpenPosition.OpenPositionModel](publisher); err != nil {
+				logging.Error(ctx, "registerPublisher error %v", err)
 			}
+		} else {
+			logging.Error(ctx, "NewPublisher error %v", err)
+			panic(err)
 		}
 
-		for ok := true; ok; ok = newErr != nil {
-			if publisher, err := rabbitmqClosePosition.NewPublisher(
-				config.GetString("RABBITMQ_USERNAME"),
-				config.GetString("RABBITMQ_PASSWORD"),
-				config.GetString("RABBITMQ_HOST"),
-				config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
-				if err = registerPublisher[*rabbitmqClosePosition.ClosePositionModel](publisher); err != nil {
-					logging.Error(ctx, "registerPublisher error %v", err)
-				}
-			} else {
-				newErr = err
-				logging.Error(ctx, "NewPublisher error %v", err)
-				time.Sleep(time.Second)
+		if publisher, err := rabbitmqClosePosition.NewPublisher(
+			config.GetString("RABBITMQ_USERNAME"),
+			config.GetString("RABBITMQ_PASSWORD"),
+			config.GetString("RABBITMQ_HOST"),
+			config.GetString("RABBITMQ_VIRTUAL_HOST")); err == nil {
+			if err = registerPublisher[*rabbitmqClosePosition.ClosePositionModel](publisher); err != nil {
+				logging.Error(ctx, "registerPublisher error %v", err)
 			}
+		} else {
+			logging.Error(ctx, "NewPublisher error %v", err)
+			panic(err)
 		}
 
 	}()
