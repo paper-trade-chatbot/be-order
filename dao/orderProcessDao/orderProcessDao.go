@@ -24,10 +24,10 @@ func Get(ctx context.Context, rds *cache.RedisInstance, query *QueryModel) (*red
 	key := first_field + ":" + marshaller.Marshal(ctx, query, "redis", ":")
 
 	value, err := rds.Get(ctx, key).Result()
-	if err.Error() == redis.Nil.Error() {
-		return nil, nil
-	}
 	if err != nil {
+		if err.Error() == redis.Nil.Error() {
+			return nil, nil
+		}
 		return nil, err
 	}
 
