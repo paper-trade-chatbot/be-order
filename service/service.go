@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/paper-trade-chatbot/be-order/logging"
+	"github.com/paper-trade-chatbot/be-common/logging"
 
-	"github.com/paper-trade-chatbot/be-order/config"
+	"github.com/paper-trade-chatbot/be-common/config"
 	"github.com/paper-trade-chatbot/be-order/service/member"
 	"github.com/paper-trade-chatbot/be-order/service/position"
 	"github.com/paper-trade-chatbot/be-order/service/product"

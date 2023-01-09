@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/paper-trade-chatbot/be-order/cache"
+	"github.com/paper-trade-chatbot/be-common/cache"
+	"github.com/paper-trade-chatbot/be-common/database"
 	"github.com/paper-trade-chatbot/be-order/cronjob"
-	"github.com/paper-trade-chatbot/be-order/database"
 	"github.com/paper-trade-chatbot/be-order/service"
 	"github.com/paper-trade-chatbot/be-order/service/order"
 	orderGrpc "github.com/paper-trade-chatbot/be-proto/order"
@@ -19,11 +19,11 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	"github.com/paper-trade-chatbot/be-order/config"
-	"github.com/paper-trade-chatbot/be-order/global"
-	"github.com/paper-trade-chatbot/be-order/logging"
+	"github.com/paper-trade-chatbot/be-common/config"
+	"github.com/paper-trade-chatbot/be-common/global"
+	"github.com/paper-trade-chatbot/be-common/logging"
+	"github.com/paper-trade-chatbot/be-common/server"
 	"github.com/paper-trade-chatbot/be-order/pubsub"
-	"github.com/paper-trade-chatbot/be-order/server"
 )
 
 func main() {

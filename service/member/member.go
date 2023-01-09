@@ -3,8 +3,8 @@ package member
 import (
 	"context"
 
+	"github.com/paper-trade-chatbot/be-common/config"
 	"github.com/paper-trade-chatbot/be-proto/member"
-	"github.com/paper-trade-chatbot/be-order/config"
 )
 
 type MemberIntf interface {

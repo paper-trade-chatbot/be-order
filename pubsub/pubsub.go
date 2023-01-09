@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/paper-trade-chatbot/be-order/config"
-	"github.com/paper-trade-chatbot/be-order/logging"
+	"github.com/paper-trade-chatbot/be-common/config"
+	"github.com/paper-trade-chatbot/be-common/logging"
 	bePubsub "github.com/paper-trade-chatbot/be-pubsub"
 
 	rabbitmqClosePosition "github.com/paper-trade-chatbot/be-pubsub/order/closePosition/rabbitmq"
